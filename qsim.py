@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 from numpy.random import default_rng
-import pandas as pd
 from enum import Enum
+import queue
 
-NUM_ITER = 10
+NUM_ITER = 10000
 
 class EventType(Enum):
     ARRIVAL = 1
@@ -14,11 +14,16 @@ class EventType(Enum):
 class QSim:
     def __init__(self):
         self._rng = default_rng()
-
         self.num_jobs = 0
+        # A served job is either completed or currently under service.
+        self.served_jobs = 0
         self.clock = 0.0
         self.t_next_arrival = self.clock + self._genIAT()
         self.t_next_completion = float('inf') 
+        # A FIFO queue tracking the arrival times of each job, for computing the
+        # queueing time later.
+        self.q = queue.SimpleQueue()
+        self.total_queueing_time = 0
 
         # Registers event handlers.
         self._event_handlers = {
@@ -30,16 +35,20 @@ class QSim:
         '''
         Generates an inter-arrival time (IAT). It is a duration, not absolute
         time.
-        Note: assuming M/M/1 queue, IAT ~ Exp(1/scale).
+        Note: assuming M/G/1 queue, IAT ~ Exp(1/scale).
         '''
-        return self._rng.exponential(scale=10)
+        return self._rng.exponential(scale=1.25)
 
     def _genServiceTime(self):
         '''
         Generates the service time for a job.
-        Note: assuming M/M/1 queue, service time ~ Exp(1/scale).
+        Note: assuming M/G/1 queue, service time ~ DegenerateHyperExp(mu=1, p).
         '''
-        return self._rng.exponential(scale=10)
+        p = 0.5
+        # With probability 1 - p, service time is 0.
+        if self._rng.uniform(low=0, high=1) > p:
+            return 0
+        return self._rng.exponential(scale=1/p)
 
     def _eventHandler(self, event_type):
         '''
@@ -57,6 +66,13 @@ class QSim:
         if self.num_jobs == 1:
             service_time = self._genServiceTime()
             self.t_next_completion = self.clock + service_time
+            # Only 1 job in the queue, there is no queueing delay, consider the
+            # job immediately served.
+            self.served_jobs += 1
+        else:
+            # Enqueue current time for the job arrived. Only do this when there
+            # is actual queueing.
+            self.q.put(self.clock)
         self.t_next_arrival = self.clock + self._genIAT()
         
     def _completionHelper(self):
@@ -67,6 +83,9 @@ class QSim:
         if self.num_jobs > 0:
             service_time = self._genServiceTime();
             self.t_next_completion = self.clock + service_time
+            # Serves the next job in queue and computes queueing delay.
+            self.served_jobs += 1
+            self.total_queueing_time += self.clock - self.q.get()
         else:
             self.t_next_completion = float("inf")
     
@@ -92,9 +111,7 @@ if __name__ == "__main__":
 
     for i in range(NUM_ITER):
         qsim.run()
-        njobs = qsim.num_jobs
-        clock = qsim.clock
-        arrival = qsim.t_next_arrival
-        completion = qsim.t_next_completion
-        print(f"[Iter {i}] clock={clock}, # jobs: {njobs}, next arrival: "
-              f"{arrival}, next completion: {completion}")
+        print(f"[Iter {i}] clock={qsim.clock}, # jobs: {qsim.num_jobs}, "
+              f"next arrival: {qsim.t_next_arrival}, next completion: "
+              f"{qsim.t_next_completion}, "
+              f"E[T_Q]={qsim.total_queueing_time / qsim.served_jobs}")
