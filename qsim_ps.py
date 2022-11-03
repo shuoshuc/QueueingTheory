@@ -6,6 +6,7 @@ from numpy.random import default_rng
 from enum import Enum
 import queue
 import threading
+import numpy as np
 
 NUM_ITER = 1000000
 
@@ -35,7 +36,7 @@ class Job:
 
 class JobQueue:
     '''
-    Unbounded LIFO job queue implementation.
+    Unbounded PS job queue implementation.
     '''
     def __init__(self, current_time):
         self.q = []
@@ -55,8 +56,10 @@ class JobQueue:
         self.q.append(job)
         self.q.sort(key=lambda j: j.service_time)
 
-    def dequeue(self):
+    def dequeue(self, current_time):
         completed_job = self.q.pop(0)
+        # Updates clock as job leaves queue.
+        self.q_clock = current_time
         for j in self.q:
             j.service_time -= completed_job.service_time
         return completed_job
@@ -102,18 +105,28 @@ class QSim:
         time.
         Note: assuming M/G/1 queue, IAT ~ Exp(1/scale).
         '''
+        '''
         return self._rng.exponential(scale=1/0.8)
+        '''
+        rho = 0.9
+        return self._rng.exponential(scale=(2999.99/rho))
 
     def _genServiceTime(self):
         '''
         Generates the service time for a job.
         Note: assuming M/G/1 queue, service time ~ DegenerateHyperExp(mu=1, p).
         '''
-        p = 1/5
+        '''
+        p = 1/4
         # With probability 1 - p, service time is 0.
         if self._rng.uniform(low=0, high=1) > p:
             return 0
         return self._rng.exponential(scale=1/p)
+        '''
+        # Bounded Pareto distribution
+        a, k, p = 1.8, 1333.33, 1e11
+        s = (self._rng.pareto(a) + 1) * k
+        return s / (1 - np.power(k/p, a)) if s > 7.58861e-23 else 0
 
     def _eventHandler(self, event_type):
         '''
@@ -139,7 +152,7 @@ class QSim:
         Updates states in response to a completion event.
         '''
         self.num_jobs -= 1
-        completed_job = self.q.dequeue()
+        completed_job = self.q.dequeue(self.clock)
         self.total_response_time += self.clock - completed_job.t_arrival
         self.served_jobs += 1
         if self.num_jobs > 0:
