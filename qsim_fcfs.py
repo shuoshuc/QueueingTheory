@@ -6,6 +6,7 @@ from numpy.random import default_rng
 from enum import Enum
 import queue
 import threading
+import numpy as np
 
 NUM_ITER = 1000000
 
@@ -37,29 +38,14 @@ class JobQueue:
     '''
     Unbounded LIFO job queue implementation.
     '''
-    def __init__(self, current_time):
+    def __init__(self):
         self.q = []
-        self.q_clock = current_time
 
     def enqueue(self, job):
-        # How much progress has been made since last action on the queue.
-        t_advanced = 0
-        if len(self.q):
-            t_advanced = (job.t_arrival - self.q_clock) / len(self.q)
-        # New job's arrival time is the current clock.
-        self.q_clock = job.t_arrival
-        # Update all existing jobs' service time.
-        for j in self.q:
-            j.service_time -= t_advanced
-        # Add new job and sort the queue again to find the new smallest job.
         self.q.append(job)
-        self.q.sort(key=lambda j: j.service_time)
 
     def dequeue(self):
-        completed_job = self.q.pop(0)
-        for j in self.q:
-            j.service_time -= completed_job.service_time
-        return completed_job
+        return self.q.pop(0)
 
     def peek(self):
         if len(self.q):
@@ -81,7 +67,7 @@ class QSim:
 
         # A FCFS queue tracking the arrival times of each job, for computing the
         # *response* time later.
-        self.q = JobQueue(self.clock)
+        self.q = JobQueue()
         self.total_response_time = 0
         # Number of jobs fully completed.
         self.served_jobs = 0
@@ -104,7 +90,7 @@ class QSim:
         time.
         Note: assuming M/G/1 queue, IAT ~ Exp(1/scale).
         '''
-        rho = 0.1
+        rho = 0.9
         return self._rng.exponential(scale=(2999.99/rho))
 
     def _genServiceTime(self):
@@ -148,7 +134,7 @@ class QSim:
         Updates states in response to a completion event.
         '''
         self.num_jobs -= 1
-        self.total_response_time += self.clock - self.curr_arrival
+        self.total_response_time += self.clock - self.t_curr_arrival
         self.served_jobs += 1
         if self.num_jobs > 0:
             # Continue serving the rest jobs.
